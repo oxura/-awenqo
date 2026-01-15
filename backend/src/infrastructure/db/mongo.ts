@@ -70,5 +70,4 @@ export async function ensureIndexes(): Promise<void> {
   await bids.createIndex({ userId: 1 });
   await rounds.createIndex({ auctionId: 1, status: 1, endTime: 1 });
   await wallets.createIndex({ userId: 1 }, { unique: true });
-  await users.createIndex({ _id: 1 }, { unique: true });
 }
