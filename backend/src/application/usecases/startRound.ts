@@ -21,6 +21,10 @@ export class StartRoundUseCase {
     }
     const activeRound = await this.roundRepo.findActiveByAuction(auctionId);
     if (activeRound) {
+      const now = new Date();
+      if (activeRound.endTime.getTime() <= now.getTime()) {
+        await this.scheduler.rescheduleCloseRound(activeRound.id, now);
+      }
       return activeRound;
     }
     const startTime = new Date();

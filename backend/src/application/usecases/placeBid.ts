@@ -1,6 +1,7 @@
 import { AppError } from "../errors";
 import { Bid } from "../../domain/entities/bid";
 import { shouldExtendRound, extendRound } from "../../domain/services/antiSniping";
+import { rankBids } from "../../domain/services/ranking";
 import {
   AuctionRepository,
   BidRepository,
@@ -45,7 +46,16 @@ export class PlaceBidUseCase {
       throw new AppError("Bid amount must be positive", 400, "INVALID_AMOUNT");
     }
 
-    const topBids = await this.leaderboard.getTopBids(input.auctionId, 1);
+    let topBids = await this.leaderboard.getTopBids(input.auctionId, 1);
+    if (topBids.length === 0) {
+      const fallbackBids = await this.bidRepo.findActiveByAuction(input.auctionId);
+      if (fallbackBids.length > 0) {
+        const ranked = rankBids(fallbackBids);
+        const topRanked = ranked.slice(0, this.leaderboardSize);
+        await Promise.all(topRanked.map((bid) => this.leaderboard.addBid(input.auctionId, bid)));
+        topBids = topRanked.slice(0, 1);
+      }
+    }
     if (topBids.length > 0) {
       const minAmount = Math.ceil(topBids[0].amount * (1 + this.minStepPercent / 100));
       if (input.amount < minAmount) {

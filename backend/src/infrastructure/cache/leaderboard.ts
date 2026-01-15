@@ -1,4 +1,4 @@
-import { Bid } from "../../domain/entities/bid";
+import { Bid, BidStatus } from "../../domain/entities/bid";
 import { LeaderboardCache } from "../../application/ports/services";
 import { getRedis } from "./redis";
 
@@ -90,8 +90,8 @@ export class RedisLeaderboardCache implements LeaderboardCache {
           roundId: parsed.roundId,
           amount: parsed.amount,
           timestamp: new Date(parsed.timestamp),
-          status: "active"
-        } satisfies Bid;
+          status: "active" as BidStatus
+        };
       })
       .filter((bid): bid is Bid => bid !== null);
   }

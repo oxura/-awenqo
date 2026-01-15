@@ -108,7 +108,8 @@ async function bootstrap() {
       bids,
       wallets,
       leaderboard,
-      leaderboardSize: env.AUCTION_TOP_N
+      leaderboardSize: env.AUCTION_TOP_N,
+      minBidStepPercent: env.AUCTION_MIN_BID_STEP_PERCENT
     },
     env.CORS_ORIGIN
   );

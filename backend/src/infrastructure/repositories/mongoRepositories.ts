@@ -247,12 +247,13 @@ export class MongoWalletRepository implements WalletRepository {
 export class MongoUserRepository implements UserRepository {
   async findById(id: string): Promise<User | null> {
     const { users } = await getCollections();
-    const doc = await users.findOne({ _id: id }, { session: getSession() });
+    // Users use string _id, not ObjectId
+    const doc = await users.findOne({ _id: id } as any, { session: getSession() });
     if (!doc) {
       return null;
     }
     return {
-      id: doc._id,
+      id: String(doc._id),
       username: doc.username,
       walletAddress: doc.walletAddress
     };
@@ -262,7 +263,7 @@ export class MongoUserRepository implements UserRepository {
   async createIfMissing(user: User): Promise<User> {
     const { users } = await getCollections();
     const result = await users.findOneAndUpdate(
-      { _id: user.id },
+      { _id: user.id } as any,
       { $setOnInsert: { _id: user.id, username: user.username, walletAddress: user.walletAddress } },
       { upsert: true, returnDocument: "after", session: getSession() }
     );
@@ -270,7 +271,7 @@ export class MongoUserRepository implements UserRepository {
       throw new Error("Failed to create or find user");
     }
     return {
-      id: result._id,
+      id: String(result._id),
       username: result.username,
       walletAddress: result.walletAddress
     };

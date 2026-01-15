@@ -1,8 +1,9 @@
 import { Queue, QueueEvents, Worker } from "bullmq";
 import { RoundScheduler } from "../../application/ports/services";
-import { getRedis } from "../cache/redis";
+import { env } from "../../config/env";
 
-const connection = getRedis();
+// Use URL-based connection to avoid ioredis version mismatch with bullmq's internal ioredis
+const connection = { url: env.REDIS_URL };
 
 const closeRoundQueue = new Queue("close-round", { connection });
 const queueEvents = new QueueEvents("close-round", { connection });

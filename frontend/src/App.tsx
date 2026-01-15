@@ -46,6 +46,7 @@ export default function App() {
   const [auctionTitle, setAuctionTitle] = useState("Gift Drop");
   const [totalItems, setTotalItems] = useState("100");
   const [isExtended, setIsExtended] = useState(false);
+  const [minBidStepPercent, setMinBidStepPercent] = useState(5);
 
   useEffect(() => {
     localStorage.setItem("userId", userId);
@@ -79,6 +80,11 @@ export default function App() {
       setIsExtended(true);
       setTimeout(() => setIsExtended(false), 1200);
     });
+    socketInstance.on("round:closed", () => {
+      fetchAuctionState();
+      fetchLeaderboard();
+      fetchWallet();
+    });
 
     return () => {
       socketInstance.disconnect();
@@ -93,9 +99,14 @@ export default function App() {
     if (!res.ok) {
       return;
     }
-    const data = await res.json();
+    const data = (await res.json()) as {
+      auction: Auction;
+      round: Round | null;
+      config?: { minBidStepPercent?: number };
+    };
     setAuction(data.auction);
     setRound(data.round);
+    setMinBidStepPercent(data.config?.minBidStepPercent ?? 5);
   }
 
   async function fetchLeaderboard() {
@@ -174,8 +185,8 @@ export default function App() {
     if (leaderboard.length === 0) {
       return 1;
     }
-    return Math.ceil(leaderboard[0].amount * 1.05);
-  }, [leaderboard]);
+    return Math.ceil(leaderboard[0].amount * (1 + minBidStepPercent / 100));
+  }, [leaderboard, minBidStepPercent]);
 
   async function handlePlaceBid() {
     if (!auctionId) {

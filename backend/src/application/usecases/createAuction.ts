@@ -44,6 +44,7 @@ export class CreateAuctionUseCase {
       status: "active"
     });
     await this.auctionRepo.update(auction.id, { currentRoundNumber: 1 });
+    auction.currentRoundNumber = 1;
     await this.scheduler.scheduleCloseRound(round.id, round.endTime);
 
     return { auction, round };

@@ -24,6 +24,7 @@ export type RouterDependencies = {
   wallets: WalletRepository;
   leaderboard: LeaderboardCache;
   leaderboardSize: number;
+  minBidStepPercent: number;
 };
 
 export function createRouter(deps: RouterDependencies): Router {
@@ -97,7 +98,13 @@ export function createRouter(deps: RouterDependencies): Router {
         throw new AppError("Auction not found", 404, "AUCTION_NOT_FOUND");
       }
       const round = await deps.rounds.findActiveByAuction(params.auctionId);
-      res.json({ auction, round });
+      res.json({
+        auction,
+        round,
+        config: {
+          minBidStepPercent: deps.minBidStepPercent
+        }
+      });
     } catch (error) {
       next(error);
     }
