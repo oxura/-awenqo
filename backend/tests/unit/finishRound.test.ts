@@ -183,6 +183,35 @@ describe("FinishRoundUseCase", () => {
       expect(updatedLate?.status).toBe("winning");
     });
 
+    it("picks earliest timestamp when bids tie and slots limited", async () => {
+      const auction = seedAuction(storage, { totalItems: 1 });
+      const pastEndTime = new Date(Date.now() - 10000);
+      const round = seedRound(storage, auction.id, { endTime: pastEndTime });
+
+      seedWallet(storage, "user-early", 0, 100);
+      seedWallet(storage, "user-late", 0, 100);
+
+      const earlyTimestamp = new Date("2024-01-01T10:00:00Z");
+      const lateTimestamp = new Date("2024-01-01T10:00:30Z");
+
+      const earlyBid = seedBid(storage, auction.id, "user-early", 100, {
+        roundId: round.id,
+        timestamp: earlyTimestamp
+      });
+      const lateBid = seedBid(storage, auction.id, "user-late", 100, {
+        roundId: round.id,
+        timestamp: lateTimestamp
+      });
+
+      await leaderboard.addBid(auction.id, earlyBid);
+      await leaderboard.addBid(auction.id, lateBid);
+
+      await useCase.execute(round.id);
+
+      expect(storage.bids.get(earlyBid.id)?.status).toBe("winning");
+      expect(storage.bids.get(lateBid.id)?.status).toBe("outbid");
+    });
+
     it("correctly identifies losers when more bids than slots", async () => {
       const auction = seedAuction(storage, { totalItems: 1 });
       const pastEndTime = new Date(Date.now() - 10000);

@@ -2,23 +2,30 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { ZodError } from "zod";
 import { AppError } from "../../application/errors";
+import { logError, requestLogger, RequestWithId } from "../../infrastructure/logging/logger";
 import { createRouter, RouterDependencies } from "./routes";
 
 export function createApp(deps: RouterDependencies, corsOrigin: string) {
   const app = express();
   app.use(express.json());
+  app.use(requestLogger);
   app.use(cors({ origin: corsOrigin === "*" ? true : corsOrigin }));
 
   app.use("/api", createRouter(deps));
 
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ZodError) {
       return res.status(400).json({ error: "VALIDATION_ERROR", details: err.flatten() });
     }
     if (err instanceof AppError) {
       return res.status(err.status).json({ error: err.code, message: err.message });
     }
-    console.error(err);
+    const requestId = (req as RequestWithId).requestId;
+    logError("request.error", err, {
+      requestId,
+      method: req.method,
+      path: req.originalUrl
+    });
     return res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
   });
 

@@ -31,8 +31,8 @@ export class FinishRoundUseCase {
       return;
     }
 
-    // CRITICAL FIX: Check if round time has actually passed
-    // This prevents premature close from stale BullMQ jobs after anti-sniping extensions
+    // Check if round time has actually passed
+    // Prevents premature close from stale BullMQ jobs after anti-sniping extensions
     const now = new Date();
     if (now.getTime() < round.endTime.getTime()) {
       // Round was extended via anti-sniping, reschedule and exit
@@ -62,9 +62,14 @@ export class FinishRoundUseCase {
       // Mark winners as "winning" and settle their locked balance
       await this.bidRepo.updateMany(winnerIds, { status: "winning" });
 
-      // CRITICAL FIX: Settle winner balances - deduct locked funds (they "spent" their bid)
+      // Settle winner balances - deduct locked funds (they "spent" their bid)
       for (const bid of winnerBids) {
-        await this.walletRepo.updateBalances(bid.userId, 0, -bid.amount);
+        await this.walletRepo.updateBalances(bid.userId, 0, -bid.amount, {
+          reason: "settle",
+          auctionId: bid.auctionId,
+          roundId: bid.roundId,
+          bidId: bid.id
+        });
       }
 
       // Losers stay active for next round (their bids carry over)
@@ -75,7 +80,7 @@ export class FinishRoundUseCase {
       await this.auctionRepo.update(auction.id, { currentRoundNumber: round.roundNumber });
     });
 
-    // CRITICAL FIX: Remove winners from leaderboard cache
+    // Remove winners from leaderboard cache
     for (const bid of winnerBids) {
       await this.leaderboard.removeBid(round.auctionId, bid.id);
     }

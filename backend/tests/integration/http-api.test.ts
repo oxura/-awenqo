@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import supertest from "supertest";
+import supertest, { type Test } from "supertest";
 
 const baseMongoUri = process.env.MONGO_URI ?? "mongodb://localhost:27017/cryptobot?replicaSet=rs0";
 const httpApiMongoUrl = new URL(baseMongoUri);
@@ -10,6 +10,9 @@ const baseRedisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
 const httpApiRedisUrl = new URL(baseRedisUrl);
 httpApiRedisUrl.pathname = "/3";
 process.env.REDIS_URL = httpApiRedisUrl.toString();
+
+const adminToken = "integration-admin-token";
+process.env.ADMIN_TOKEN = adminToken;
 
 /**
  * E2E HTTP API Tests
@@ -28,6 +31,7 @@ if (!shouldRun) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let app: any;
     let cleanupDb: () => Promise<void>;
+    const withAdmin = (req: Test) => req.set("x-admin-token", adminToken);
 
     beforeAll(async () => {
       const http = await import("node:http");
@@ -35,6 +39,7 @@ if (!shouldRun) {
       const {
         MongoAuctionRepository,
         MongoBidRepository,
+        MongoIdempotencyRepository,
         MongoRoundRepository,
         MongoTransactionManager,
         MongoUserRepository,
@@ -62,6 +67,7 @@ if (!shouldRun) {
       const bids = new MongoBidRepository();
       const users = new MongoUserRepository();
       const wallets = new MongoWalletRepository();
+      const idempotency = new MongoIdempotencyRepository();
       const tx = new MongoTransactionManager();
 
       const leaderboard = new RedisLeaderboardCache();
@@ -93,6 +99,7 @@ if (!shouldRun) {
         rounds,
         bids,
         wallets,
+        idempotency,
         leaderboard,
         leaderboardSize: env.AUCTION_TOP_N,
         minBidStepPercent: env.AUCTION_MIN_BID_STEP_PERCENT
@@ -120,7 +127,9 @@ if (!shouldRun) {
           collections.rounds.deleteMany({}),
           collections.bids.deleteMany({}),
           collections.wallets.deleteMany({}),
-          collections.users.deleteMany({})
+          collections.users.deleteMany({}),
+          collections.walletLedger.deleteMany({}),
+          collections.idempotency.deleteMany({})
         ]);
       };
     }, 60000);
@@ -142,10 +151,19 @@ if (!shouldRun) {
     });
 
     describe("POST /api/admin/auction", () => {
-      it("creates a new auction", async () => {
+      it("rejects missing admin token", async () => {
         const res = await supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "E2E Test Auction", totalItems: 5 });
+          .send({ title: "Secure Auction", totalItems: 2 });
+
+        expect(res.status).toBe(401);
+        expect(res.body.error).toBe("UNAUTHORIZED");
+      });
+
+      it("creates a new auction", async () => {
+        const res = await withAdmin(supertest(app)
+          .post("/api/admin/auction")
+          .send({ title: "E2E Test Auction", totalItems: 5 }));
 
         expect(res.status).toBe(201);
         expect(res.body.auction).toBeDefined();
@@ -155,9 +173,9 @@ if (!shouldRun) {
       });
 
       it("creates auction with startNow", async () => {
-        const res = await supertest(app)
+        const res = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Immediate Start", totalItems: 3, startNow: true });
+          .send({ title: "Immediate Start", totalItems: 3, startNow: true }));
 
         expect(res.status).toBe(201);
         expect(res.body.auction).toBeDefined();
@@ -166,18 +184,18 @@ if (!shouldRun) {
       });
 
       it("validates required fields", async () => {
-        const res = await supertest(app)
+        const res = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Missing totalItems" });
+          .send({ title: "Missing totalItems" }));
 
         expect(res.status).toBe(400);
         expect(res.body.error).toBe("VALIDATION_ERROR");
       });
 
       it("rejects non-positive totalItems", async () => {
-        const res = await supertest(app)
+        const res = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Bad Items", totalItems: 0 });
+          .send({ title: "Bad Items", totalItems: 0 }));
 
         expect(res.status).toBe(400);
       });
@@ -185,9 +203,9 @@ if (!shouldRun) {
 
     describe("POST /api/admin/users/:userId/deposit", () => {
       it("credits user wallet", async () => {
-        const res = await supertest(app)
+        const res = await withAdmin(supertest(app)
           .post("/api/admin/users/test-user/deposit")
-          .send({ amount: 1000 });
+          .send({ amount: 1000 }));
 
         expect(res.status).toBe(201);
         expect(res.body.status).toBe("credited");
@@ -198,9 +216,9 @@ if (!shouldRun) {
       });
 
       it("rejects non-positive amount", async () => {
-        const res = await supertest(app)
+        const res = await withAdmin(supertest(app)
           .post("/api/admin/users/test-user/deposit")
-          .send({ amount: -100 });
+          .send({ amount: -100 }));
 
         expect(res.status).toBe(400);
       });
@@ -208,9 +226,9 @@ if (!shouldRun) {
 
     describe("GET /api/users/:userId/wallet", () => {
       it("returns wallet for existing user", async () => {
-        await supertest(app)
+        await withAdmin(supertest(app)
           .post("/api/admin/users/wallet-user/deposit")
-          .send({ amount: 500 });
+          .send({ amount: 500 }));
 
         const res = await supertest(app).get("/api/users/wallet-user/wallet");
         expect(res.status).toBe(200);
@@ -229,15 +247,15 @@ if (!shouldRun) {
     describe("POST /api/auction/:auctionId/bid", () => {
       it("places a bid successfully", async () => {
         // Create auction
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Bid Test", totalItems: 1, startNow: true });
+          .send({ title: "Bid Test", totalItems: 1, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
         // Deposit funds
-        await supertest(app)
+        await withAdmin(supertest(app)
           .post("/api/admin/users/bidder/deposit")
-          .send({ amount: 1000 });
+          .send({ amount: 1000 }));
 
         // Place bid
         const bidRes = await supertest(app)
@@ -250,9 +268,9 @@ if (!shouldRun) {
       });
 
       it("rejects bid with insufficient funds", async () => {
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "No Money", totalItems: 1, startNow: true });
+          .send({ title: "No Money", totalItems: 1, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
         // No deposit
@@ -265,13 +283,13 @@ if (!shouldRun) {
       });
 
       it("rejects bid below minimum step", async () => {
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Step Test", totalItems: 1, startNow: true });
+          .send({ title: "Step Test", totalItems: 1, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
-        await supertest(app).post("/api/admin/users/user1/deposit").send({ amount: 10000 });
-        await supertest(app).post("/api/admin/users/user2/deposit").send({ amount: 10000 });
+        await withAdmin(supertest(app).post("/api/admin/users/user1/deposit").send({ amount: 10000 }));
+        await withAdmin(supertest(app).post("/api/admin/users/user2/deposit").send({ amount: 10000 }));
 
         // First bid
         await supertest(app)
@@ -290,14 +308,14 @@ if (!shouldRun) {
 
     describe("GET /api/auction/:auctionId/leaderboard", () => {
       it("returns sorted leaderboard", async () => {
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Leaderboard Test", totalItems: 10, startNow: true });
+          .send({ title: "Leaderboard Test", totalItems: 10, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
-        await supertest(app).post("/api/admin/users/u1/deposit").send({ amount: 10000 });
-        await supertest(app).post("/api/admin/users/u2/deposit").send({ amount: 10000 });
-        await supertest(app).post("/api/admin/users/u3/deposit").send({ amount: 10000 });
+        await withAdmin(supertest(app).post("/api/admin/users/u1/deposit").send({ amount: 10000 }));
+        await withAdmin(supertest(app).post("/api/admin/users/u2/deposit").send({ amount: 10000 }));
+        await withAdmin(supertest(app).post("/api/admin/users/u3/deposit").send({ amount: 10000 }));
 
         await supertest(app).post(`/api/auction/${auctionId}/bid`).send({ userId: "u1", amount: 100 });
         await supertest(app).post(`/api/auction/${auctionId}/bid`).send({ userId: "u2", amount: 110 });
@@ -313,12 +331,12 @@ if (!shouldRun) {
       });
 
       it("respects limit parameter", async () => {
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Limit Test", totalItems: 10, startNow: true });
+          .send({ title: "Limit Test", totalItems: 10, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
-        await supertest(app).post("/api/admin/users/limiter/deposit").send({ amount: 10000 });
+        await withAdmin(supertest(app).post("/api/admin/users/limiter/deposit").send({ amount: 10000 }));
         await supertest(app).post(`/api/auction/${auctionId}/bid`).send({ userId: "limiter", amount: 100 });
         await supertest(app).post(`/api/auction/${auctionId}/bid`).send({ userId: "limiter", amount: 200 });
         await supertest(app).post(`/api/auction/${auctionId}/bid`).send({ userId: "limiter", amount: 300 });
@@ -331,12 +349,12 @@ if (!shouldRun) {
 
     describe("POST /api/bid/:bidId/withdraw", () => {
       it("withdraws bid and refunds user", async () => {
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Withdraw Test", totalItems: 1, startNow: true });
+          .send({ title: "Withdraw Test", totalItems: 1, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
-        await supertest(app).post("/api/admin/users/withdrawer/deposit").send({ amount: 500 });
+        await withAdmin(supertest(app).post("/api/admin/users/withdrawer/deposit").send({ amount: 500 }));
 
         const bidRes = await supertest(app)
           .post(`/api/auction/${auctionId}/bid`)
@@ -358,12 +376,12 @@ if (!shouldRun) {
       });
 
       it("rejects withdrawal by different user", async () => {
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Forbidden Test", totalItems: 1, startNow: true });
+          .send({ title: "Forbidden Test", totalItems: 1, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
-        await supertest(app).post("/api/admin/users/owner/deposit").send({ amount: 500 });
+        await withAdmin(supertest(app).post("/api/admin/users/owner/deposit").send({ amount: 500 }));
 
         const bidRes = await supertest(app)
           .post(`/api/auction/${auctionId}/bid`)
@@ -380,9 +398,9 @@ if (!shouldRun) {
 
     describe("GET /api/auction/:auctionId", () => {
       it("returns auction and round info", async () => {
-        const auctionRes = await supertest(app)
+        const auctionRes = await withAdmin(supertest(app)
           .post("/api/admin/auction")
-          .send({ title: "Info Test", totalItems: 5, startNow: true });
+          .send({ title: "Info Test", totalItems: 5, startNow: true }));
         const auctionId = auctionRes.body.auction.id;
 
         const res = await supertest(app).get(`/api/auction/${auctionId}`);

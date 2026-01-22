@@ -33,6 +33,8 @@ if (!shouldRun) {
         bids: { deleteMany: (filter: object) => Promise<unknown> };
         wallets: { deleteMany: (filter: object) => Promise<unknown> };
         users: { deleteMany: (filter: object) => Promise<unknown> };
+        walletLedger: { deleteMany: (filter: object) => Promise<unknown> };
+        idempotency: { deleteMany: (filter: object) => Promise<unknown> };
       }>;
       createAuction: { execute: (input: { title: string; totalItems: number; startNow?: boolean }) => Promise<{ auction: { id: string }; round?: { id: string } }> };
       startRound: { execute: (auctionId: string) => Promise<{ id: string; endTime: Date }> };
@@ -147,7 +149,9 @@ if (!shouldRun) {
         collections.rounds.deleteMany({}),
         collections.bids.deleteMany({}),
         collections.wallets.deleteMany({}),
-        collections.users.deleteMany({})
+        collections.users.deleteMany({}),
+        collections.walletLedger.deleteMany({}),
+        collections.idempotency.deleteMany({})
       ]);
     });
 
@@ -159,7 +163,9 @@ if (!shouldRun) {
         collections.rounds.deleteMany({}),
         collections.bids.deleteMany({}),
         collections.wallets.deleteMany({}),
-        collections.users.deleteMany({})
+        collections.users.deleteMany({}),
+        collections.walletLedger.deleteMany({}),
+        collections.idempotency.deleteMany({})
       ]);
     }, 10000);
 

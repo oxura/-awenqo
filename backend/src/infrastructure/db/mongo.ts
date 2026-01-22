@@ -51,6 +51,8 @@ export type Collections = {
   bids: Collection;
   users: Collection;
   wallets: Collection;
+  walletLedger: Collection;
+  idempotency: Collection;
 };
 
 export async function getCollections(): Promise<Collections> {
@@ -60,14 +62,19 @@ export async function getCollections(): Promise<Collections> {
     rounds: database.collection("rounds"),
     bids: database.collection("bids"),
     users: database.collection("users"),
-    wallets: database.collection("wallets")
+    wallets: database.collection("wallets"),
+    walletLedger: database.collection("wallet_ledger"),
+    idempotency: database.collection("idempotency_keys")
   };
 }
 
 export async function ensureIndexes(): Promise<void> {
-  const { bids, rounds, wallets, users } = await getCollections();
+  const { bids, rounds, wallets, users, walletLedger, idempotency } = await getCollections();
   await bids.createIndex({ auctionId: 1, amount: -1, timestamp: 1 });
   await bids.createIndex({ userId: 1 });
   await rounds.createIndex({ auctionId: 1, status: 1, endTime: 1 });
   await wallets.createIndex({ userId: 1 }, { unique: true });
+  await walletLedger.createIndex({ userId: 1, createdAt: -1 });
+  await walletLedger.createIndex({ idempotencyKey: 1, userId: 1 });
+  await idempotency.createIndex({ key: 1, scope: 1 }, { unique: true });
 }

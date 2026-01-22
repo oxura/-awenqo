@@ -12,7 +12,7 @@ export class WithdrawFundsUseCase {
     private readonly leaderboardSize: number
   ) {}
 
-  async execute(bidId: string, userId: string): Promise<void> {
+  async execute(bidId: string, userId: string, idempotencyKey?: string): Promise<void> {
     const bid = await this.bidRepo.findById(bidId);
     if (!bid) {
       throw new AppError("Bid not found", 404, "BID_NOT_FOUND");
@@ -28,7 +28,13 @@ export class WithdrawFundsUseCase {
     }
 
     await this.tx.withTransaction(async () => {
-      await this.walletRepo.updateBalances(userId, bid.amount, -bid.amount);
+      await this.walletRepo.updateBalances(userId, bid.amount, -bid.amount, {
+        reason: "refund",
+        auctionId: bid.auctionId,
+        roundId: bid.roundId,
+        bidId,
+        idempotencyKey
+      });
       await this.bidRepo.updateStatus(bidId, "refunded");
     });
 

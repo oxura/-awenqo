@@ -1,7 +1,6 @@
 import { AppError } from "../errors";
 import { Bid } from "../../domain/entities/bid";
 import { shouldExtendRound, extendRound } from "../../domain/services/antiSniping";
-import { rankBids } from "../../domain/services/ranking";
 import {
   AuctionRepository,
   BidRepository,
@@ -21,6 +20,7 @@ export type PlaceBidInput = {
   auctionId: string;
   userId: string;
   amount: number;
+  idempotencyKey?: string;
 };
 
 export class PlaceBidUseCase {
@@ -46,16 +46,7 @@ export class PlaceBidUseCase {
       throw new AppError("Bid amount must be positive", 400, "INVALID_AMOUNT");
     }
 
-    let topBids = await this.leaderboard.getTopBids(input.auctionId, 1);
-    if (topBids.length === 0) {
-      const fallbackBids = await this.bidRepo.findActiveByAuction(input.auctionId);
-      if (fallbackBids.length > 0) {
-        const ranked = rankBids(fallbackBids);
-        const topRanked = ranked.slice(0, this.leaderboardSize);
-        await Promise.all(topRanked.map((bid) => this.leaderboard.addBid(input.auctionId, bid)));
-        topBids = topRanked.slice(0, 1);
-      }
-    }
+    const topBids = await this.leaderboard.getTopBids(input.auctionId, 1);
     if (topBids.length > 0) {
       const minAmount = Math.ceil(topBids[0].amount * (1 + this.minStepPercent / 100));
       if (input.amount < minAmount) {
@@ -91,7 +82,19 @@ export class PlaceBidUseCase {
       if (!wallet || wallet.availableBalance < input.amount) {
         throw new AppError("Insufficient funds", 409, "INSUFFICIENT_FUNDS");
       }
-      await this.walletRepo.updateBalances(input.userId, -input.amount, input.amount);
+      try {
+        await this.walletRepo.updateBalances(input.userId, -input.amount, input.amount, {
+          reason: "hold",
+          auctionId: input.auctionId,
+          roundId: round.id,
+          idempotencyKey: input.idempotencyKey
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === "BALANCE_UPDATE_FAILED") {
+          throw new AppError("Insufficient funds", 409, "INSUFFICIENT_FUNDS");
+        }
+        throw error;
+      }
       createdBid = await this.bidRepo.create({
         auctionId: input.auctionId,
         userId: input.userId,

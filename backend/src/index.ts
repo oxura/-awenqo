@@ -4,6 +4,7 @@ import { connectMongo, ensureIndexes } from "./infrastructure/db/mongo";
 import {
   MongoAuctionRepository,
   MongoBidRepository,
+  MongoIdempotencyRepository,
   MongoRoundRepository,
   MongoTransactionManager,
   MongoUserRepository,
@@ -20,6 +21,7 @@ import { WithdrawFundsUseCase } from "./application/usecases/withdrawFunds";
 import { CreateAuctionUseCase } from "./application/usecases/createAuction";
 import { StartRoundUseCase } from "./application/usecases/startRound";
 import { CreditWalletUseCase } from "./application/usecases/creditWallet";
+import { log, logError } from "./infrastructure/logging/logger";
 
 async function bootstrap() {
   await connectMongo();
@@ -30,6 +32,7 @@ async function bootstrap() {
   const bids = new MongoBidRepository();
   const users = new MongoUserRepository();
   const wallets = new MongoWalletRepository();
+  const idempotency = new MongoIdempotencyRepository();
   const tx = new MongoTransactionManager();
 
   const leaderboard = new RedisLeaderboardCache();
@@ -107,24 +110,30 @@ async function bootstrap() {
       rounds,
       bids,
       wallets,
+      idempotency,
       leaderboard,
       leaderboardSize: env.AUCTION_TOP_N,
       minBidStepPercent: env.AUCTION_MIN_BID_STEP_PERCENT
     },
     env.CORS_ORIGIN
   );
-  server.on("request", app);
+  server.on("request", (req, res) => {
+    if (req.url?.startsWith("/socket.io")) {
+      return;
+    }
+    app(req, res);
+  });
 
   startCloseRoundWorker(async (roundId) => {
     await finishRound.execute(roundId);
   });
 
   server.listen(env.PORT, () => {
-    console.log(`API listening on http://localhost:${env.PORT}`);
+    log("info", "server.started", { port: env.PORT });
   });
 }
 
 bootstrap().catch((error) => {
-  console.error(error);
+  logError("server.bootstrap_failed", error);
   process.exit(1);
 });

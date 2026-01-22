@@ -153,6 +153,30 @@ describe("PlaceBidUseCase", () => {
     });
   });
 
+  describe("round end boundary", () => {
+    it("allows bid when round end time equals now", async () => {
+      vi.useFakeTimers();
+      try {
+        const now = new Date("2025-01-01T00:00:00Z");
+        vi.setSystemTime(now);
+        const auction = seedAuction(storage);
+        seedRound(storage, auction.id, { endTime: now });
+        seedUser(storage, "user-1");
+        seedWallet(storage, "user-1", 500);
+
+        const bid = await useCase.execute({
+          auctionId: auction.id,
+          userId: "user-1",
+          amount: 100
+        });
+
+        expect(bid.amount).toBe(100);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("validation errors", () => {
     it("throws error for non-positive amount", async () => {
       const auction = seedAuction(storage);
@@ -235,7 +259,7 @@ describe("PlaceBidUseCase", () => {
       ).rejects.toThrow("Bid must be at least 105");
     });
 
-    it("hydrates leaderboard from storage when cache is empty", async () => {
+    it("allows bid when cache is empty (redis-only)", async () => {
       const auction = seedAuction(storage);
       seedRound(storage, auction.id);
       seedUser(storage, "user-1");
@@ -243,17 +267,34 @@ describe("PlaceBidUseCase", () => {
       seedUser(storage, "user-2");
       seedWallet(storage, "user-2", 10000);
 
-      const topBid = seedBid(storage, auction.id, "user-1", 100, { status: "active" });
+      seedBid(storage, auction.id, "user-1", 100, { status: "active" });
       seedBid(storage, auction.id, "user-2", 90, { status: "outbid" });
 
-      await expect(
-        useCase.execute({ auctionId: auction.id, userId: "user-2", amount: 102 })
-      ).rejects.toThrow("Bid must be at least 105");
-
+      const bid = await useCase.execute({ auctionId: auction.id, userId: "user-2", amount: 102 });
+      expect(bid.amount).toBe(102);
       expect(leaderboard.addBid).toHaveBeenCalledWith(
         auction.id,
-        expect.objectContaining({ id: topBid.id })
+        expect.objectContaining({ id: bid.id })
       );
+    });
+
+    it("rounds min step using ceiling", async () => {
+      const auction = seedAuction(storage);
+      seedRound(storage, auction.id);
+      seedUser(storage, "user-1");
+      seedWallet(storage, "user-1", 10000);
+      seedUser(storage, "user-2");
+      seedWallet(storage, "user-2", 10000);
+
+      await useCase.execute({
+        auctionId: auction.id,
+        userId: "user-1",
+        amount: 101
+      });
+
+      await expect(
+        useCase.execute({ auctionId: auction.id, userId: "user-2", amount: 106 })
+      ).rejects.toThrow("Bid must be at least 107");
     });
 
     it("accepts bid at exactly min step", async () => {
@@ -366,6 +407,43 @@ describe("PlaceBidUseCase", () => {
         2000,
         expect.any(Function)
       );
+    });
+
+    it("extends round at exact threshold boundary", async () => {
+      vi.useFakeTimers();
+      try {
+        const now = new Date("2025-01-01T00:00:00Z");
+        vi.setSystemTime(now);
+        const auction = seedAuction(storage);
+        const endTime = new Date(now.getTime() + THRESHOLD_MS);
+        seedRound(storage, auction.id, { endTime });
+        seedUser(storage, "user-1");
+        seedWallet(storage, "user-1", 1000);
+
+        await useCase.execute({
+          auctionId: auction.id,
+          userId: "user-1",
+          amount: 100
+        });
+
+        expect(scheduler.rescheduleCloseRound).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("cache failures", () => {
+    it("fails when leaderboard cache is unavailable", async () => {
+      leaderboard.getTopBids = vi.fn().mockRejectedValue(new Error("Redis down"));
+      const auction = seedAuction(storage);
+      seedRound(storage, auction.id);
+      seedUser(storage, "user-1");
+      seedWallet(storage, "user-1", 1000);
+
+      await expect(
+        useCase.execute({ auctionId: auction.id, userId: "user-1", amount: 100 })
+      ).rejects.toThrow("Redis down");
     });
   });
 

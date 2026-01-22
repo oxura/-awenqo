@@ -22,7 +22,7 @@ export class BullMqRoundScheduler implements RoundScheduler {
   }
 
   async rescheduleCloseRound(roundId: string, runAt: Date): Promise<void> {
-    // HIGH PRIORITY FIX: Safely handle job removal in any state
+    // Safely handle job removal in any state
     // Job might be: waiting, delayed, active, completed, failed, or not exist
     try {
       const job = await closeRoundQueue.getJob(roundId);

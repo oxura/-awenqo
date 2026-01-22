@@ -8,14 +8,17 @@ export class CreditWalletUseCase {
     private readonly tx: TransactionManager
   ) {}
 
-  async execute(userId: string, amount: number): Promise<void> {
+  async execute(userId: string, amount: number, idempotencyKey?: string): Promise<void> {
     if (amount <= 0) {
       throw new AppError("Amount must be positive", 400, "INVALID_AMOUNT");
     }
     await this.tx.withTransaction(async () => {
       await this.userRepo.createIfMissing({ id: userId, username: userId, walletAddress: "n/a" });
       await this.walletRepo.createIfMissing(userId);
-      await this.walletRepo.updateBalances(userId, amount, 0);
+      await this.walletRepo.updateBalances(userId, amount, 0, {
+        reason: "credit",
+        idempotencyKey
+      });
     });
   }
 }

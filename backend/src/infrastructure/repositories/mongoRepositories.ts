@@ -4,9 +4,12 @@ import { Bid, BidStatus } from "../../domain/entities/bid";
 import { Round } from "../../domain/entities/round";
 import { Wallet } from "../../domain/entities/wallet";
 import { User } from "../../domain/entities/user";
+import { WalletLedgerMeta } from "../../domain/entities/walletLedger";
 import {
   AuctionRepository,
   BidRepository,
+  IdempotencyRepository,
+  IdempotencyRecord,
   RoundRepository,
   TransactionManager,
   WalletRepository,
@@ -17,6 +20,56 @@ import { getSession } from "../db/transactionContext";
 
 function mapId(id: ObjectId): string {
   return id.toHexString();
+}
+
+export class MongoIdempotencyRepository implements IdempotencyRepository {
+  async find(key: string, scope: string): Promise<IdempotencyRecord | null> {
+    const { idempotency } = await getCollections();
+    const doc = await idempotency.findOne({ key, scope }, { session: getSession() });
+    if (!doc) {
+      return null;
+    }
+    return {
+      id: mapId(doc._id),
+      key: doc.key,
+      scope: doc.scope,
+      status: doc.status,
+      response: doc.response,
+      createdAt: doc.createdAt
+    } satisfies IdempotencyRecord;
+  }
+
+  async reserve(key: string, scope: string): Promise<boolean> {
+    const { idempotency } = await getCollections();
+    const result = await idempotency.updateOne(
+      { key, scope },
+      {
+        $setOnInsert: {
+          key,
+          scope,
+          status: 0,
+          response: null,
+          createdAt: new Date()
+        }
+      },
+      { upsert: true, session: getSession() }
+    );
+    return Boolean(result.upsertedCount);
+  }
+
+  async finalize(key: string, scope: string, status: number, response: unknown): Promise<void> {
+    const { idempotency } = await getCollections();
+    await idempotency.updateOne(
+      { key, scope },
+      {
+        $set: {
+          status,
+          response
+        }
+      },
+      { session: getSession() }
+    );
+  }
 }
 
 export class MongoTransactionManager implements TransactionManager {
@@ -142,8 +195,7 @@ export class MongoBidRepository implements BidRepository {
     } as Bid;
   }
 
-  // HIGH PRIORITY FIX: Exclude "winning" bids from active pool
-  // Winners should exit the pool after winning, only "active" and "outbid" continue
+  // Exclude "winning" bids from active pool; only "active" and "outbid" continue
   async findActiveByAuction(auctionId: string): Promise<Bid[]> {
     const { bids } = await getCollections();
     const docs = await bids
@@ -215,16 +267,45 @@ export class MongoWalletRepository implements WalletRepository {
     } as Wallet;
   }
 
-  async updateBalances(userId: string, availableDelta: number, lockedDelta: number): Promise<void> {
-    const { wallets } = await getCollections();
-    await wallets.updateOne(
-      { userId },
+  async updateBalances(
+    userId: string,
+    availableDelta: number,
+    lockedDelta: number,
+    meta?: WalletLedgerMeta
+  ): Promise<void> {
+    const { wallets, walletLedger } = await getCollections();
+    const filter: Record<string, unknown> = { userId };
+    if (availableDelta < 0) {
+      filter.availableBalance = { $gte: Math.abs(availableDelta) };
+    }
+    if (lockedDelta < 0) {
+      filter.lockedBalance = { $gte: Math.abs(lockedDelta) };
+    }
+    const result = await wallets.updateOne(
+      filter,
       { $inc: { availableBalance: availableDelta, lockedBalance: lockedDelta } },
+      { session: getSession() }
+    );
+    if (result.matchedCount === 0) {
+      throw new Error("BALANCE_UPDATE_FAILED");
+    }
+    await walletLedger.insertOne(
+      {
+        userId,
+        availableDelta,
+        lockedDelta,
+        reason: meta?.reason ?? "adjustment",
+        auctionId: meta?.auctionId,
+        roundId: meta?.roundId,
+        bidId: meta?.bidId,
+        idempotencyKey: meta?.idempotencyKey,
+        createdAt: new Date()
+      },
       { session: getSession() }
     );
   }
 
-  // MEDIUM PRIORITY FIX: Atomic upsert pattern to prevent duplicate key errors
+  // Atomic upsert pattern to prevent duplicate key errors
   async createIfMissing(userId: string): Promise<Wallet> {
     const { wallets } = await getCollections();
     const result = await wallets.findOneAndUpdate(
@@ -259,7 +340,7 @@ export class MongoUserRepository implements UserRepository {
     };
   }
 
-  // MEDIUM PRIORITY FIX: Atomic upsert pattern to prevent duplicate key errors
+  // Atomic upsert pattern to prevent duplicate key errors
   async createIfMissing(user: User): Promise<User> {
     const { users } = await getCollections();
     const result = await users.findOneAndUpdate(
