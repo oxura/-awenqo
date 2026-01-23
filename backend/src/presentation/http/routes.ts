@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { AppError } from "../../application/errors";
 import { PlaceBidUseCase } from "../../application/usecases/placeBid";
@@ -41,7 +41,7 @@ export function createRouter(deps: RouterDependencies): Router {
   const router = Router();
   const adminToken = env.ADMIN_TOKEN;
 
-  const adminGuard = (req: Request, res: Response, next: () => void) => {
+  const adminGuard = (req: Request, res: Response, next: NextFunction) => {
     if (!adminToken) {
       return next();
     }
@@ -109,7 +109,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.post("/admin/auction/:auctionId/start", adminGuard, async (req, res, next) => {
+  router.post("/admin/auction/:auctionId/start", adminGuard, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { auctionId } = z.object({ auctionId: objectIdSchema }).parse(req.params);
       const round = await deps.startRound.execute(auctionId);
@@ -119,7 +119,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.post("/admin/round/:roundId/close", adminGuard, async (req, res, next) => {
+  router.post("/admin/round/:roundId/close", adminGuard, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { roundId } = z.object({ roundId: objectIdSchema }).parse(req.params);
       await deps.finishRound.execute(roundId);
@@ -129,7 +129,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.post("/admin/auction/:auctionId/stop", adminGuard, async (req, res, next) => {
+  router.post("/admin/auction/:auctionId/stop", adminGuard, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { auctionId } = z.object({ auctionId: objectIdSchema }).parse(req.params);
       await deps.auctions.update(auctionId, { status: "finished" });
@@ -145,7 +145,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.post("/admin/users/:userId/deposit", adminGuard, async (req, res, next) => {
+  router.post("/admin/users/:userId/deposit", adminGuard, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const params = z.object({ userId: z.string().min(1) }).parse(req.params);
       const body = z.object({ amount: z.number().finite().positive() }).parse(req.body);
@@ -164,7 +164,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.get("/auction/:auctionId", async (req, res, next) => {
+  router.get("/auction/:auctionId", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const params = z.object({ auctionId: objectIdSchema }).parse(req.params);
       const auction = await deps.auctions.findById(params.auctionId);
@@ -184,7 +184,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.get("/auction/:auctionId/leaderboard", async (req, res, next) => {
+  router.get("/auction/:auctionId/leaderboard", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const params = z.object({ auctionId: objectIdSchema }).parse(req.params);
       const query = z
@@ -200,7 +200,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.get("/users/:userId/wallet", async (req, res, next) => {
+  router.get("/users/:userId/wallet", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const params = z.object({ userId: z.string().min(1) }).parse(req.params);
       const wallet = await deps.wallets.findByUserId(params.userId);
@@ -228,7 +228,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.post("/auction/:auctionId/bid", bidRateLimiter, async (req, res, next) => {
+  router.post("/auction/:auctionId/bid", bidRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const params = z.object({ auctionId: objectIdSchema }).parse(req.params);
       const body = z
@@ -254,7 +254,7 @@ export function createRouter(deps: RouterDependencies): Router {
     }
   });
 
-  router.post("/bid/:bidId/withdraw", async (req, res, next) => {
+  router.post("/bid/:bidId/withdraw", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const params = z.object({ bidId: objectIdSchema }).parse(req.params);
       const body = z.object({ userId: z.string().min(1) }).parse(req.body);
