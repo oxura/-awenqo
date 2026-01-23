@@ -13,6 +13,8 @@ Frontend (Netlify)
 - Project: https://app.netlify.com/projects/cryptobot-frontend
 - Deploy: https://app.netlify.com/sites/4b89f8b1-df53-4bb8-9edc-8452b3700871/deploys/69734e0ab93cb3b06108076e
 
+Demo video: https://github.com/oxura/-awenqo/blob/main/%D0%97%D0%B0%D0%BF%D0%B8%D1%81%D1%8C%202026-01-23%20181523.mp4
+
 ## Mechanics (Telegram Gift Auctions)
 - **Auction lifecycle**: `/api/admin/auction` creates an auction and (optionally) starts round #1. Each round lasts `AUCTION_ROUND_DURATION_MS`.
 - **Ranking & winners**: At round close, bids are sorted by amount desc, timestamp asc; top **N** (`auction.totalItems`) are winners.
