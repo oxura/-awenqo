@@ -3,6 +3,16 @@
 This repo implements a minimal but production-style backend and a demo UI for Telegram Gift Auctions mechanics.
 Below is a concise description of the behavior as it is implemented in this codebase.
 
+Backend (Render)
+- URL: https://cryptobot-backend-2rf8.onrender.com
+- Dashboard: https://dashboard.render.com/web/srv-d5pkrlur433s73ddode0
+- CORS has been updated on Netlify URL (new deployment launched).
+
+Frontend (Netlify)
+- URL: https://cryptobot-frontend.netlify.app
+- Project: https://app.netlify.com/projects/cryptobot-frontend
+- Deploy: https://app.netlify.com/sites/4b89f8b1-df53-4bb8-9edc-8452b3700871/deploys/69734e0ab93cb3b06108076e
+
 ## Mechanics (Telegram Gift Auctions)
 - **Auction lifecycle**: `/api/admin/auction` creates an auction and (optionally) starts round #1. Each round lasts `AUCTION_ROUND_DURATION_MS`.
 - **Ranking & winners**: At round close, bids are sorted by amount desc, timestamp asc; top **N** (`auction.totalItems`) are winners.
