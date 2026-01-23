@@ -94,7 +94,7 @@ export function createRouter(deps: RouterDependencies): Router {
     res.json({ status: "ok" });
   });
 
-  router.post("/admin/auction", adminGuard, async (req, res, next) => {
+  router.post("/admin/auction", adminGuard, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const schema = z.object({
         title: z.string().min(1),
