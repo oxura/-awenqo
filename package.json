@@ -4,8 +4,5 @@
   "workspaces": [
     "backend",
     "frontend"
-  ],
-  "devDependencies": {
-    "@rollup/rollup-win32-x64-msvc": "^4.55.1"
-  }
+  ]
 }
